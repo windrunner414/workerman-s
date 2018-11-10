@@ -37,6 +37,7 @@ class Worker
 
     public $setting = [];
     public $id;
+    public $connections = [];
 
     public $swooleObj = null;
 
@@ -182,13 +183,14 @@ class Worker
     function _onConnect($server, $fd, $reactorId)
     {
         $connection = null;
+        $this->connections[$fd] = $connection;
         Worker::trigger($this, 'onConnect', $connection);
     }
 
     function _onReceive($server, $fd, $reactorId, $data)
     {
         //TODO: need unpack
-        $connection = null;
+        $connection = $this->connections[$fd];
         Worker::trigger($this, 'onMessage', $connection, $data);
     }
 
@@ -203,7 +205,7 @@ class Worker
         $this->initGlobalArray($request->fd, $request);
 
         //TODO:$_SESSION
-        $connection = null;
+        $connection = $this->connections[$request->fd];
         Worker::trigger($this, 'onMessage', $connection, $request->getData());
 
         $this->cleanGlobalArray($request->fd);
@@ -230,7 +232,7 @@ class Worker
     {
         $this->setGlobalArrayId($frame->fd);
 
-        $connection = null;
+        $connection = $this->connections[$frame->fd];
         Worker::trigger($this, 'onMessage', $connection, $frame->data);
     }
 
@@ -243,8 +245,9 @@ class Worker
 
     function _onClose($server, $fd, $reactorId)
     {
-        $connection = null;
+        $connection = $this->connections[$fd];
         Worker::trigger($this, 'onClose', $connection);
+        unset($this->connections[$fd]);
 
         if ($this->type === 'websocket') {
             $this->cleanGlobalArray($fd);
@@ -253,13 +256,13 @@ class Worker
 
     function _onBufferFull($server, $fd)
     {
-        $connection = null;
+        $connection = $this->connections[$fd];
         Worker::trigger($this, 'onBufferFull', $connection);
     }
 
     function _onBufferEmpty($server, $fd)
     {
-        $connection = null;
+        $connection = $this->connections[$fd];
         Worker::trigger($this, 'onBufferDrain', $connection);
     }
 
