@@ -18,11 +18,16 @@ class Worker
     private static $workers = [];
     private static $workers_no_listen = [];
 
+    public $listen;
+    public $context;
+
     private $host;
     private $port;
     private $type;
     private $socketType;
-    private $protocol;
+    private $protocolClass;
+
+    public static $_startFile;
 
     /**
      * @var array fd => coroutineId
@@ -48,28 +53,52 @@ class Worker
 
     // setting
     public $count = 1;
+    public $name = '';
+    public $protocol = '';
+    public $transport = 'tcp';
+    public $reusePort = false;
+    public $user = '';
+    public $reloadable = true;
+
+    public static $stdoutFile = '/dev/null';
+    public static $pidFile = '';
+    public static $logFile = __DIR__ . '/../workerman.log';
+    public static $daemonize = false;
+    public static $globalEvent = null;
 
     /**
      * Worker constructor.
      * @param string $listen
      * @param array $context
-     * @throws WorkerException
      */
     function __construct($listen = '', $context = [])
     {
         $this->coroutine = class_exists('\\co');
+        $this->listen = $listen;
+        $this->context = $context;
+
+        WorkerManager::$workers_wait_add[] = $this;
+    }
+
+    /**
+     * @throws WorkerException
+     */
+    function add()
+    {
+        $listen = $this->listen;
+        $context = $this->context;
 
         if ($listen !== '') {
             $set = [];
 
             // ignore ipv6_v6only, bindto, so_broadcast
             if (isset($context['backlog'])) $set['backlog'] = $context['backlog'];
-            if (isset($context['so_reuseport'])) $set['enable_reuse_port'] = $context['so_reuseport'];
+            if (isset($context['so_reuseport'])) $this->reusePort = $context['so_reuseport'];
             if (isset($context['tcp_nodelay'])) $set['open_tcp_nodelay'] = $context['tcp_nodelay'];
 
             $bind = explode('://', $listen, 2);
             if (count($bind) !== 2) throw new WorkerException('listen param parse error');
-            $type = $bind[0];
+            $type = $this->protocol === '' ? $bind[0] : $this->protocol;
 
             if (strpos($type, 'unix') === 0) {
                 $host = $bind[1];
@@ -99,7 +128,7 @@ class Worker
 
             $param = WorkerManager::add($host, $port, $type, $this);
             $this->socketType = $param['socketType'];
-            $this->protocol = $param['protocol'];
+            $this->protocolClass = $param['protocol'];
 
             self::$workers[] = $this;
         } else {
@@ -127,6 +156,7 @@ class Worker
 
         foreach (self::$workers as $worker) {
             $worker->id = $workerId;
+            if ($worker->name !== '') \swoole_set_process_name($worker->name);
             Worker::trigger($worker, 'onWorkerStart', $worker);
         }
     }
@@ -140,6 +170,7 @@ class Worker
 
     function _onProcessStart()
     {
+        if ($this->name !== '') \swoole_set_process_name($this->name);
         Worker::trigger($this, 'onWorkerStart', $this);
     }
 

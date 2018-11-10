@@ -9,6 +9,7 @@
 require '../Autoloader.php';
 
 use \Workerman\Worker;
+use \Workerman\Events\EventInterface;
 
 $worker = new Worker('');
 
@@ -17,9 +18,10 @@ $worker->count = 4;
 $worker->onWorkerStart = function ($worker) {
     $id = $worker->id;
     var_dump($id . 'start');
-    swoole_timer_after(3000, function () {
+    Worker::$globalEvent->add(3, EventInterface::EV_TIMER_ONCE, function ($echo) {
+        echo $echo;
         Worker::stopAll();
-    });
+    }, ['stop' . PHP_EOL]);
 };
 
 $worker->onWorkerStop = function ($worker) {

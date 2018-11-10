@@ -8,6 +8,8 @@
 
 namespace Workerman;
 
+use \Workerman\Events\SwooleEvent;
+
 /**
  * Class WorkerManager
  * This class manage swoole_server and swoole_server_port objects
@@ -21,11 +23,7 @@ class WorkerManager
      */
     const TYPE = [
         'tcp'         => SWOOLE_SOCK_TCP,
-        'tcp6'        => SWOOLE_SOCK_TCP6,
         'udp'         => SWOOLE_SOCK_UDP,
-        'udp6'        => SWOOLE_SOCK_UDP6,
-        'unix_dgram'  => SWOOLE_SOCK_UNIX_DGRAM,
-        'unix_stream' => SWOOLE_SOCK_UNIX_STREAM,
         'unix'        => SWOOLE_SOCK_UNIX_STREAM,
         'http'        => SWOOLE_SOCK_TCP,
         'websocket'   => SWOOLE_SOCK_TCP
@@ -35,6 +33,8 @@ class WorkerManager
      * stream type
      */
     const STREAM_TYPE = [SWOOLE_SOCK_TCP, SWOOLE_SOCK_TCP6, SWOOLE_SOCK_UNIX_STREAM];
+
+    static $workers_wait_add = [];
 
     /**
      * @var array worker added but not created
@@ -84,6 +84,7 @@ class WorkerManager
      * @param $type
      * @param $object
      * @return array
+     * @throws WorkerException
      */
     static function add($host, $port, $type, $object)
     {
@@ -94,22 +95,33 @@ class WorkerManager
             if (!class_exists($protocol)) {
                 $protocol = '\\Workerman\\Protocols\\' . $type;
                 if (!class_exists($protocol)) {
-                    exit('Unknown protocol ' . $type . PHP_EOL);
+                    throw new WorkerException('Unknown protocol ' . $type);
                 }
             }
 
-            if (strpos($host, ':') !== false) {
-                $socketType = SWOOLE_SOCK_TCP6;
-            } else {
+            if ($object->transport === 'tcp') {
                 $socketType = SWOOLE_SOCK_TCP;
+            } else if ($object->transport === 'udp') {
+                $socketType = SWOOLE_SOCK_UDP;
+            } else if ($object->transport === 'ssl') {
+                $socketType = SWOOLE_SOCK_TCP;
+            } else {
+                throw new WorkerException('Unknown transport ' . $object->transport);
             }
         } else {
             $socketType = self::TYPE[$type];
+        }
 
-            if (strpos($host, ':') !== false) {
-                if ($socketType === SWOOLE_SOCK_TCP) $socketType = SWOOLE_SOCK_TCP6;
-                if ($socketType === SWOOLE_SOCK_UDP) $socketType = SWOOLE_SOCK_UDP6;
-            }
+        if (strpos($host, ':') !== false) {
+            if ($socketType === SWOOLE_SOCK_TCP) $socketType = SWOOLE_SOCK_TCP6;
+            if ($socketType === SWOOLE_SOCK_UDP) $socketType = SWOOLE_SOCK_UDP6;
+        }
+
+        if ($object->transport === 'ssl') {
+            $socketType = $socketType | SWOOLE_SSL;
+            $ssl = $object->context['ssl'];
+            $object->setting['ssl_cert_file'] = $ssl['local_cert'];
+            $object->setting['ssl_key_file'] = $ssl['local_pk'];
         }
 
         $param = ['host' => $host, 'port' => $port, 'type' => $type, 'socketType' => $socketType, 'protocol' => $protocol, 'object' => $object];
@@ -152,11 +164,18 @@ class WorkerManager
                 $worker->on('workerStop', ['\\Workerman\\Worker', 'workerStop']);
 
                 $workerSetting = [
-                    'worker_num' => $v['object']->count
+                    'worker_num' => $v['object']->count,
+                    'log_file' => Worker::$logFile,
+                    'pid_file' => Worker::$pidFile,
+                    'daemonize' => Worker::$daemonize
                 ];
+
+                if ($v['object']->user !== '') $workerSetting['user'] = $v['object']->user;
             } else {
                 $worker = self::getMainWorker()->addListener($v['host'], $v['port'], $v['socketType']);
-                $workerSetting = [];
+                $workerSetting = [
+                    'enable_reuse_port' => $v['object']->reusePort
+                ];
             }
 
             if (!$worker) throw new WorkerException("Worker can't be created, {$v['type']}://{$v['host']}:{$v['port']}");
@@ -267,12 +286,69 @@ class WorkerManager
     }
 
     /**
+     * parse command
+     */
+    static function parseCommand()
+    {
+        global $argv;
+
+        $pid = @file_get_contents(Worker::$pidFile);
+        if ($pid !== false && !\swoole_process::kill($pid, 0)) $pid = false;
+
+        switch (isset($argv[1]) ? $argv[1] : '') {
+            case 'start':
+                if (isset($argv[2]) && $argv[2] === '-d') {
+                    Worker::$daemonize = true;
+                }
+                break;
+
+            case 'reload':
+                if ($pid === false) exit('server not start' . PHP_EOL);
+                \swoole_process::kill($pid, SIGUSR1);
+                exit(0);
+
+            case 'restart':
+                if ($pid === false) exit('server not start' . PHP_EOL);
+                \swoole_process::kill($pid, SIGTERM);
+                sleep(1);
+
+                if (isset($argv[2]) && $argv[2] === '-d') {
+                    Worker::$daemonize = true;
+                }
+                break;
+
+            case 'stop':
+                if ($pid === false) exit('server not start' . PHP_EOL);
+                \swoole_process::kill($pid, SIGTERM);
+                exit(0);
+
+            default:
+                exit('Unknown command' . PHP_EOL);
+        }
+    }
+
+    /**
      * run all workers
      *
      * @throws WorkerException
      */
     static function runAll()
     {
+        $backtrace = debug_backtrace();
+        Worker::$_startFile = $backtrace[count($backtrace) - 1]['file'];
+        $unique_prefix = str_replace('/', '_', Worker::$_startFile);
+
+        if (Worker::$pidFile === '') Worker::$pidFile = __DIR__ . "/../{$unique_prefix}.pid";
+
+        self::parseCommand();
+
+        Worker::$globalEvent = new SwooleEvent();
+
+        foreach (self::$workers_wait_add as $worker) {
+            $worker->add();
+        }
+
+        self::$workers_wait_add = [];
         self::$process_running = true;
 
         if (empty(self::$workers_wait)) {
