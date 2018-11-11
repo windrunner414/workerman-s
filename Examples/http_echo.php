@@ -17,8 +17,9 @@ $worker->onWorkerStart = function ($worker) {
 };
 
 $worker->onMessage = function ($connection, $data) {
-    var_dump($_SERVER['REQUEST_METHOD']);
-    echo $_SERVER;
+    foreach ($_SERVER as $k => $v) echo $k . '=>' . $v . PHP_EOL;
+    echo $_SESSION;
+    $_SESSION['a'] = 1;
 };
 
 Worker::runAll();

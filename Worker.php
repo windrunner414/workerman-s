@@ -111,10 +111,17 @@ class Worker
                 $host = $bind[1];
                 $port = 0;
             } else {
-                $bind = explode(':', $bind[1], 2);
-                if (count($bind) !== 2) throw new WorkerException('listen param parse error');
-                $host = $bind[0];
-                $port = $bind[1];
+                if ($bind[1][0] === '[') {
+                    $bind = explode(']:', $bind[1], 2);
+                    if (count($bind) !== 2) throw new WorkerException('listen param parse error');
+                    $host = substr($bind[0], 1);
+                    $port = $bind[1];
+                } else {
+                    $bind = explode(':', $bind[1], 2);
+                    if (count($bind) !== 2) throw new WorkerException('listen param parse error');
+                    $host = $bind[0];
+                    $port = $bind[1];
+                }
             }
 
             $this->host = $host;
