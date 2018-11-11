@@ -56,6 +56,7 @@ class Worker
     public $onBufferDrain = null;
     public $onError = null;
     public $onWebSocketConnect = null;
+    public $onWebSocketClose = null;
 
     // setting
     public $count = 1;
@@ -123,7 +124,7 @@ class Worker
             $this->setting = array_merge([
                 'open_eof_check' => false,
                 'open_length_check' => false,
-                'open_http_protocol' => $type === 'http',
+                'open_http_protocol' => $type === 'http' || $type === 'websocket',
                 'open_http2_protocol' => false,
                 'open_websocket_protocol' => $type === 'websocket',
                 'open_mqtt_protocol' => false,

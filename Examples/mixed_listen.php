@@ -27,7 +27,7 @@ $websocket = new Worker('websocket://0.0.0.0:7777');
 $websocket->count = 4; // because after this worker, create a http worker, so this setting will not take effect
 $websocket->name = 'websocket'; // will use the last worker name, so it will be workerman-s
 
-$websocket->onConnect = function ($conn) {
+$websocket->onConnect = function ($conn) use ($websocket) {
     var_dump('websocket connect');
 };
 $websocket->onWebSocketConnect = function ($conn, $data) use ($websocket) {
@@ -36,6 +36,7 @@ $websocket->onWebSocketConnect = function ($conn, $data) use ($websocket) {
 $websocket->onMessage = function ($conn, $data) use ($websocket) {
     var_dump($data);
 };
+$websocket->onWebSocketClose = function ($conn) use ($websocket) {var_dump($websocket->connections);};
 
 $httpWorker = new Worker('http://0.0.0.0:5555');
 $httpWorker->count = 1; // right
@@ -44,7 +45,8 @@ $httpWorker->name = 'workerman-s';
 $httpWorker->onMessage = function ($conn, $data) use ($httpWorker) {
     // var_dump($data);
     // echo $_GET, PHP_EOL;
-    var_dump($httpWorker->connections);
+    //var_dump($httpWorker->connections);
+    var_dump('http on message');
 };
 $httpWorker->onWorkerStart = function ($worker) {
     // var_dump('http ' . $worker->id . ' start');
