@@ -24,7 +24,8 @@ class GlobalArray implements \ArrayAccess, \Iterator, \Countable, \JsonSerializa
         $id = $this->getId();
 
         if (!isset($this->context[$id])) {
-            return [];
+            $empty = [];
+            return $empty;
         }
 
         return $this->context[$id];

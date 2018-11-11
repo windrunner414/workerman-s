@@ -192,6 +192,7 @@ class WorkerManager
                 } else if ($v['type'] === 'websocket') {
                     $worker->on('message', [$v['object'], '_onMessage']);
                     $worker->on('open', [$v['object'], '_onOpen']);
+                    $worker->on('handShake', [$v['object'], '_onHandShake']);
                 } else {
                     $worker->on('receive', [$v['object'], '_onReceive']);
                 }

@@ -8,6 +8,8 @@
 
 namespace Workerman;
 
+use Workerman\Lib\Session;
+
 require_once __DIR__ . '/Lib/Constants.php';
 
 class WorkerException extends \Exception
@@ -53,6 +55,7 @@ class Worker
     public $onBufferFull = null;
     public $onBufferDrain = null;
     public $onError = null;
+    public $onWebSocketConnect = null;
 
     // setting
     public $count = 1;
@@ -204,13 +207,61 @@ class Worker
      */
     function _onRequest($request, $response)
     {
-        $this->initGlobalArray($request->fd, $request);
+        $this->initGlobalArray($request->fd, $request, $response);
 
-        //TODO:$_SESSION
         $connection = $this->connections[$request->fd];
         Worker::trigger($this, 'onMessage', $connection, $request->getData());
 
         $this->cleanGlobalArray($request->fd);
+    }
+
+    /**
+     * websocket on handshake
+     *
+     * @param $request
+     * @param $response
+     * @return bool
+     */
+    function _onHandShake($request, $response)
+    {
+        $this->initGlobalArray($request->fd, $request, $response);
+
+        $connection = $this->connections[$request->fd];
+        Worker::trigger($this, 'onWebSocketConnect', $connection, $request->getData());
+
+        if ($connection->closed) return false;
+
+        $secWebSocketKey = $request->header['sec-websocket-key'];
+        $patten = '#^[+/0-9A-Za-z]{21}[AQgw]==$#';
+        if (0 === preg_match($patten, $secWebSocketKey) || 16 !== strlen(base64_decode($secWebSocketKey))) {
+            $response->end();
+            return false;
+        }
+
+        $key = base64_encode(sha1(
+            $request->header['sec-websocket-key'] . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11',
+            true
+        ));
+
+        $headers = [
+            'Upgrade' => 'websocket',
+            'Connection' => 'Upgrade',
+            'Sec-WebSocket-Accept' => $key,
+            'Sec-WebSocket-Version' => '13',
+        ];
+
+        if (isset($request->header['sec-websocket-protocol'])) {
+            $headers['Sec-WebSocket-Protocol'] = $request->header['sec-websocket-protocol'];
+        }
+
+        foreach ($headers as $key => $val) {
+            $response->header($key, $val);
+        }
+
+        $response->status(101);
+        $response->end();
+
+        return true;
     }
 
     /**
@@ -221,7 +272,7 @@ class Worker
      */
     function _onOpen($server, $request)
     {
-        $this->initGlobalArray($request->fd, $request);
+        $this->setGlobalArrayId($request->fd);
     }
 
     /**
@@ -249,11 +300,13 @@ class Worker
     {
         $connection = $this->connections[$fd];
         Worker::trigger($this, 'onClose', $connection);
-        unset($this->connections[$fd]);
 
         if ($this->type === 'websocket') {
+            Worker::trigger($this, 'onWebSocketClose', $connection);
             $this->cleanGlobalArray($fd);
         }
+
+        unset($this->connections[$fd]);
     }
 
     function _onBufferFull($server, $fd)
@@ -296,7 +349,7 @@ class Worker
         $_SESSION->setId($id);
     }
 
-    function initGlobalArray($id, $request)
+    function initGlobalArray($id, $request, $response)
     {
         $this->setGlobalArrayId($id);
 
@@ -309,10 +362,13 @@ class Worker
         $_SERVER->assign(array_change_key_case($request->server, CASE_UPPER));
         $_GET->assign($request->get);
         $_POST->assign($request->post);
-        $_REQUEST->assign(array_merge($request->get, $request->post));
+        $_REQUEST->assign(array_merge($request->get, $request->post, $request->cookie));
         $_COOKIE->assign($request->cookie);
         $_FILES->assign($request->files);
-        $_SESSION->assign([]); //TODO
+
+        Session::gc();
+        Session::start($response);
+        $_SESSION->assign(Session::get());
     }
 
     function cleanGlobalArray($id)
@@ -323,9 +379,11 @@ class Worker
         $_GET->remove();
         $_POST->remove();
         $_REQUEST->remove();
-        $_COOKIE->remove();
         $_FILES->remove();
+
+        Session::set($_SESSION->get());
         $_SESSION->remove();
+        $_COOKIE->remove();
 
         if ($this->coroutine) {
             unset($this->cidMapping[$id]);

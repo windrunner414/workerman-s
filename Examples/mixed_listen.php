@@ -23,6 +23,20 @@ $tcpWorker->onWorkerStart = function ($worker) {
     // var_dump(get_class($worker->swooleObj)); // swoole_server_port
 };
 
+$websocket = new Worker('websocket://0.0.0.0:7777');
+$websocket->count = 4; // because after this worker, create a http worker, so this setting will not take effect
+$websocket->name = 'websocket'; // will use the last worker name, so it will be workerman-s
+
+$websocket->onConnect = function ($conn) {
+    var_dump('websocket connect');
+};
+$websocket->onWebSocketConnect = function ($conn, $data) use ($websocket) {
+    var_dump($data);
+};
+$websocket->onMessage = function ($conn, $data) use ($websocket) {
+    var_dump($data);
+};
+
 $httpWorker = new Worker('http://0.0.0.0:5555');
 $httpWorker->count = 1; // right
 $httpWorker->name = 'workerman-s';

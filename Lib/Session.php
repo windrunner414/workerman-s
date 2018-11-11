@@ -40,6 +40,26 @@ class Session
         if (!is_dir(self::$path)) mkdir(self::$path, 0777, true);
     }
 
+    static function createId()
+    {
+        do {
+            srand();
+            $id = uniqid(rand(0, PHP_INT_MAX));
+        } while (is_file(self::$path . '/sess_' . $id));
+
+        return $id;
+    }
+
+    static function start($response)
+    {
+        if (isset($_COOKIE[self::$name])) return;
+
+        $id = self::createId();
+        file_put_contents(self::$path . '/sess_' . $id, '');
+        $_COOKIE[self::$name] = $id;
+        $response->cookie(self::$name, $id);
+    }
+
     static function get()
     {
         if (!isset($_COOKIE[self::$name])) return [];
@@ -49,7 +69,7 @@ class Session
 
         if (is_file($file)) {
             $content = file_get_contents($file);
-            if ($content !== false) {
+            if ($content !== false && $content !== '') {
                 $session = \swoole_serialize::unpack($content);
                 if ($session !== false) return $session;
             }
