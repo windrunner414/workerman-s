@@ -352,6 +352,9 @@ class WorkerManager
         self::$process_running = true;
 
         if (empty(self::$workers_wait)) {
+            if (Worker::$daemonize) \swoole_process::daemon(false, false);
+            file_put_contents(Worker::$pidFile, getmypid());
+
             self::setSignal();
             self::createProcess();
 

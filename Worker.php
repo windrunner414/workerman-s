@@ -8,6 +8,8 @@
 
 namespace Workerman;
 
+require_once __DIR__ . '/Lib/Constants.php';
+
 class WorkerException extends \Exception
 {
 
