@@ -11,5 +11,5 @@ require '../Autoloader.php';
 use Workerman\Worker;
 
 $worker = new Worker('websocket://0.0.0.0:7777');
-$worker->onMessage = function ($conn, $data) {var_dump($data);};
+$worker->onMessage = function ($conn, $data) {$conn->send($data);};
 Worker::runAll();

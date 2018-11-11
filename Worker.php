@@ -8,6 +8,7 @@
 
 namespace Workerman;
 
+use Workerman\Connection\TcpConnection;
 use Workerman\Lib\Session;
 
 require_once __DIR__ . '/Lib/Constants.php';
@@ -136,9 +137,12 @@ class Worker
                 'open_websocket_protocol' => $type === 'websocket',
                 'open_mqtt_protocol' => false,
                 'open_websocket_close_frame' => false,
-                'buffer_high_watermark' => 1048576,
-                'buffer_low_watermark' => 0
-            ], $set);
+                'buffer_high_watermark' => TcpConnection::$defaultMaxSendBufferSize,
+                'buffer_low_watermark' => 0,
+                'buffer_output_size' => TcpConnection::$defaultMaxSendBufferSize,
+                'socket_buffer_size' => TcpConnection::$defaultMaxSendBufferSize,
+                'package_max_length' => TcpConnection::$maxPackageSize
+            ], $set, $this->setting);
 
             $param = WorkerManager::add($host, $port, $type, $this);
             $this->socketType = $param['socketType'];
@@ -195,7 +199,11 @@ class Worker
 
     function _onConnect($server, $fd, $reactorId)
     {
-        $connection = null;
+        if ($this->type === 'http') $type = TcpConnection::TYPE_HTTP;
+        elseif ($this->type === 'websocket') $type = TcpConnection::TYPE_HTTP; // on handshake, websocket conn type is http
+        else $type = TcpConnection::TYPE_OTHER;
+
+        $connection = new TcpConnection($type, $fd, $this->protocolClass, $this, $type === TcpConnection::TYPE_OTHER);
         $this->connections[$fd] = $connection;
         Worker::trigger($this, 'onConnect', $connection);
     }
@@ -204,6 +212,8 @@ class Worker
     {
         //TODO: need unpack
         $connection = $this->connections[$fd];
+        ++TcpConnection::$statistics['total_request'];
+        Worker::trigger($connection, 'onMessage', $connection, $data);
         Worker::trigger($this, 'onMessage', $connection, $data);
     }
 
@@ -218,7 +228,16 @@ class Worker
         $this->initGlobalArray($request->fd, $request, $response);
 
         $connection = $this->connections[$request->fd];
-        Worker::trigger($this, 'onMessage', $connection, $request->getData());
+        $connection->conn = $response;
+        $data = $request->getData();
+        ++TcpConnection::$statistics['total_request'];
+        Worker::trigger($connection, 'onMessage', $connection, $data);
+        Worker::trigger($this, 'onMessage', $connection, $data);
+
+        if (!$connection->ended) {
+            $connection->close();
+        }
+        $connection->ended = false;
 
         $this->cleanGlobalArray($request->fd);
     }
@@ -235,6 +254,7 @@ class Worker
         $this->initGlobalArray($request->fd, $request, $response);
 
         $connection = $this->connections[$request->fd];
+        $connection->conn = $response;
         Worker::trigger($this, 'onWebSocketConnect', $connection, $request->getData());
 
         if ($connection->closed) return false;
@@ -294,6 +314,10 @@ class Worker
         $this->setGlobalArrayId($frame->fd);
 
         $connection = $this->connections[$frame->fd];
+        $connection->conn = $frame;
+        $connection->type = TcpConnection::TYPE_WEBSOCKET;
+        ++TcpConnection::$statistics['total_request'];
+        Worker::trigger($connection, 'onMessage', $connection, $frame->data);
         Worker::trigger($this, 'onMessage', $connection, $frame->data);
     }
 
@@ -307,6 +331,8 @@ class Worker
     function _onClose($server, $fd, $reactorId)
     {
         $connection = $this->connections[$fd];
+        $connection->closed = true;
+        Worker::trigger($connection, 'onClose', $connection);
         Worker::trigger($this, 'onClose', $connection);
 
         if ($this->type === 'websocket') {
@@ -314,18 +340,21 @@ class Worker
             $this->cleanGlobalArray($fd);
         }
 
+        $connection->_destroy();
         unset($this->connections[$fd]);
     }
 
     function _onBufferFull($server, $fd)
     {
         $connection = $this->connections[$fd];
+        Worker::trigger($connection, 'onBufferFull', $connection);
         Worker::trigger($this, 'onBufferFull', $connection);
     }
 
     function _onBufferEmpty($server, $fd)
     {
         $connection = $this->connections[$fd];
+        Worker::trigger($connection, 'onBufferDrain', $connection);
         Worker::trigger($this, 'onBufferDrain', $connection);
     }
 

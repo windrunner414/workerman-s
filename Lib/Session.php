@@ -97,6 +97,7 @@ class Session
 
     static function _gc()
     {
+        // TODO: Start a process to gc and prevent multi process gc at the same time (use swoole_table?)
         $now = time();
 
         foreach (glob(self::$path . '/sess_*') as $file) {
