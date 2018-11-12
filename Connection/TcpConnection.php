@@ -238,16 +238,30 @@ class TcpConnection extends ConnectionInterface
 
     function pauseRecv()
     {
-
+        WorkerManager::getMainWorker()->pause($this->fd);
     }
 
     function resumeRecv()
     {
-
+        WorkerManager::getMainWorker()->resume($this->fd);
     }
 
-    function pipe()
+    function pipe($dst)
     {
+        $this->onMessage = function ($conn, $data) use ($dst) {
+            $dst->send($data);
+        };
 
+        $this->onClose = function ($conn) use ($dst) {
+            $dst->close();
+        };
+
+        $dst->onBufferFull = function ($conn) {
+            $this->pauseRecv();
+        };
+
+        $dst->onBufferDrain = function ($conn) {
+            $this->resumeRecv();
+        };
     }
 }
