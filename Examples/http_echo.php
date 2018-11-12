@@ -18,7 +18,13 @@ $worker->onWorkerStart = function ($worker) {
 };
 
 $worker->onMessage = function ($connection, $data) {
+    //$connection->conn->end('hello world');
+    //$connection->ended = true;
     $connection->send('hello world');
+};
+
+$worker->onClose = function ($connection) {
+    var_dump('onClose');
 };
 
 Worker::runAll();

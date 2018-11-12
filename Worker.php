@@ -261,8 +261,10 @@ class Worker
         $connection->rawPostData = $request->rawContent();
         Worker::trigger($connection, 'onWebSocketConnect', $connection, $request->getData());
 
-        $connection->ended = false;
-        if ($connection->closed) return false;
+        if ($connection->ended) {
+            $connection->ended = false;
+            return false;
+        }
 
         $secWebSocketKey = $request->header['sec-websocket-key'];
         $patten = '#^[+/0-9A-Za-z]{21}[AQgw]==$#';

@@ -40,6 +40,7 @@ class TcpConnection extends ConnectionInterface
     public $rawPostData = '';
 
     public $protocol;
+    public $transport;
     public $worker;
 
     public $maxSendBufferSize = 1048576; // will ignore it
@@ -59,6 +60,7 @@ class TcpConnection extends ConnectionInterface
         $this->id = $fd;
         $this->fd = $fd;
         $this->protocol = $protocol;
+        $this->transport = $worker->transport;
         $this->worker = $worker;
         if ($ready) $this->conn = $fd;
 
@@ -226,15 +228,12 @@ class TcpConnection extends ConnectionInterface
             default:
                 throw new \Exception('Unknown connection type');
         }
-
-        $this->closed = true;
     }
 
     function destroy()
     {
         WorkerManager::getMainWorker()->close($this->fd, true);
         if ($this->type === self::TYPE_HTTP) $this->ended = true;
-        $this->closed = true;
     }
 
     function pauseRecv()
