@@ -8,6 +8,8 @@
 
 namespace Workerman\Lib;
 
+use Workerman\Protocols\Http;
+
 class Session
 {
     public static $path;
@@ -15,6 +17,7 @@ class Session
     public static $gcProbability = 1;
     public static $gcDivisor = 1000;
     public static $gcMaxLifeTime = 1440;
+    public static $httpOnly = true;
 
     static function init()
     {
@@ -37,7 +40,16 @@ class Session
             self::$gcMaxLifeTime = $gc_max_life_time;
         }
 
+        self::$httpOnly = ini_get('session.cookie_httponly') ? true : false;
+
         if (!is_dir(self::$path)) mkdir(self::$path, 0777, true);
+    }
+
+    static function sessionFile($id = null)
+    {
+        if (!$id) $id = self::sessionId();
+        if (!$id) return '';
+        return self::$path . '/sess_' . $id;
     }
 
     static function createId()
@@ -45,27 +57,61 @@ class Session
         do {
             srand();
             $id = uniqid(rand(0, PHP_INT_MAX));
-        } while (is_file(self::$path . '/sess_' . $id));
+        } while (is_file(self::sessionFile($id)));
 
         return $id;
     }
 
+    static function sessionId()
+    {
+        if (!self::sessionStarted()) return '';
+        if (!isset($GLOBALS[Http::$globalName]['session_id'])) return '';
+        return $GLOBALS[Http::$globalName]['session_id'];
+    }
+
+    static function sessionName($name = null)
+    {
+        if (!self::sessionStarted() && $name) self::$name = $name;
+        return self::$name;
+    }
+
+    static function sessionSavePath($path = null)
+    {
+        if (!self::sessionStarted() && $path) self::$path = $path;
+        return self::$path;
+    }
+
+    static function sessionStarted()
+    {
+        if (!isset($GLOBALS[Http::$globalName]['session_started'])) return false;
+        return $GLOBALS[Http::$globalName]['session_started'];
+    }
+
     static function start($response)
     {
-        if (isset($_COOKIE[self::$name])) return;
+        if (self::sessionStarted()) return false;
+        $GLOBALS[Http::$globalName]['session_started'] = true;
 
-        $id = self::createId();
-        file_put_contents(self::$path . '/sess_' . $id, '');
-        $_COOKIE[self::$name] = $id;
-        $response->cookie(self::$name, $id);
+        if (isset($_COOKIE[self::$name])) {
+            $id = $_COOKIE[self::$name];
+        } else {
+            $id = self::createId();
+            file_put_contents(self::sessionFile($id), '');
+            $response->cookie(self::$name, $id, 0, '/', '', false, self::$httpOnly);
+        }
+
+        $GLOBALS[Http::$globalName]['session_id'] = $id;
+        self::gc();
+
+        $_SESSION->assign(self::get());
+        return true;
     }
 
     static function get()
     {
-        if (!isset($_COOKIE[self::$name])) return [];
-
-        $sessionId = $_COOKIE[self::$name];
-        $file = self::$path . '/sess_' . $sessionId;
+        $id = self::sessionId();
+        if (!$id) return [];
+        $file = self::sessionFile($id);
 
         if (is_file($file)) {
             $content = file_get_contents($file);
@@ -81,11 +127,12 @@ class Session
     static function set($session)
     {
         if (!is_array($session)) return false;
-        if (!isset($_COOKIE[self::$name])) return false;
 
-        $sessionId = $_COOKIE[self::$name];
+        $id = self::sessionId();
+        if (!$id) return false;
+
         $content = \swoole_serialize::pack($session);
-        return file_put_contents(self::$path . '/sess_' . $sessionId, $content);
+        return file_put_contents(self::sessionFile($id), $content);
     }
 
     static function gc()

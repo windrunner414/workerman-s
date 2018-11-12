@@ -10,6 +10,7 @@ namespace Workerman;
 
 use Workerman\Connection\TcpConnection;
 use Workerman\Lib\Session;
+use Workerman\Protocols\Http;
 
 require_once __DIR__ . '/Lib/Constants.php';
 
@@ -171,6 +172,7 @@ class Worker
         $_SERVER = new GlobalArray();
         $_FILES = new GlobalArray();
         $_REQUEST = new GlobalArray();
+        $GLOBALS[Http::$globalName] = new GlobalArray();
 
         foreach (self::$workers as $worker) {
             $worker->id = $workerId;
@@ -236,11 +238,8 @@ class Worker
         $data = $request->getData();
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $data);
-
-        if (!$connection->ended) {
-            $connection->close();
-        }
-        $connection->ended = false;
+        $connection->conn = null;
+        $connection->rawPostData = '';
 
         $this->cleanGlobalArray($request->fd);
     }
@@ -261,16 +260,19 @@ class Worker
         $connection->rawPostData = $request->rawContent();
         Worker::trigger($connection, 'onWebSocketConnect', $connection, $request->getData());
 
-        if ($connection->ended) {
-            $connection->ended = false;
-            return false;
+        $connection->conn = null;
+        $connection->rawPostData = '';
+
+        if ($connection->webSocketClosed) {
+            $connection->webSocketClosed = false;
+            goto closed;
         }
 
         $secWebSocketKey = $request->header['sec-websocket-key'];
         $patten = '#^[+/0-9A-Za-z]{21}[AQgw]==$#';
         if (0 === preg_match($patten, $secWebSocketKey) || 16 !== strlen(base64_decode($secWebSocketKey))) {
             $response->end();
-            return false;
+            goto closed;
         }
 
         $key = base64_encode(sha1(
@@ -296,7 +298,15 @@ class Worker
         $response->status(101);
         $response->end();
 
+        $GLOBALS[Http::$globalName]['swoole_http_response'] = null;
+        $connection->conn = $request->fd;
+        $connection->type = TcpConnection::TYPE_WEBSOCKET;
+
         return true;
+
+        closed:
+        $this->cleanGlobalArray($request->fd);
+        return false;
     }
 
     /**
@@ -322,7 +332,6 @@ class Worker
 
         $connection = $this->connections[$frame->fd];
         $connection->conn = $frame;
-        $connection->type = TcpConnection::TYPE_WEBSOCKET;
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $frame->data);
     }
@@ -340,7 +349,8 @@ class Worker
         $connection->closed = true;
         Worker::trigger($connection, 'onClose', $connection);
 
-        if ($this->type === 'websocket') {
+        if ($this->type === 'websocket' && $connection->type === TcpConnection::TYPE_WEBSOCKET) {
+            // if connection->type not websocket, the globalArray already cleaned on handshake
             Worker::trigger($connection, 'onWebSocketClose', $connection);
             $this->cleanGlobalArray($fd);
         }
@@ -367,13 +377,16 @@ class Worker
             $cid = \co::getuid();
 
             if (isset($this->cidMapping[$id]) && $this->cidMapping[$id] !== $cid) {
-                $_SERVER->move($this->cidMapping[$id]);
-                $_GET->move($this->cidMapping[$id]);
-                $_POST->move($this->cidMapping[$id]);
-                $_REQUEST->move($this->cidMapping[$id]);
-                $_COOKIE->move($this->cidMapping[$id]);
-                $_FILES->move($this->cidMapping[$id]);
-                $_SESSION->move($this->cidMapping[$id]);
+                $oldId = $this->cidMapping[$id];
+
+                $_SERVER->move($oldId);
+                $_GET->move($oldId);
+                $_POST->move($oldId);
+                $_REQUEST->move($oldId);
+                $_COOKIE->move($oldId);
+                $_FILES->move($oldId);
+                $_SESSION->move($oldId);
+                $GLOBALS[Http::$globalName]->move($oldId);
             }
 
             $this->cidMapping[$id] = $cid;
@@ -387,6 +400,7 @@ class Worker
         $_COOKIE->setId($id);
         $_FILES->setId($id);
         $_SESSION->setId($id);
+        $GLOBALS[Http::$globalName]->setId($id);
     }
 
     function initGlobalArray($id, $request, $response)
@@ -405,10 +419,8 @@ class Worker
         $_REQUEST->assign(array_merge($request->get, $request->post, $request->cookie));
         $_COOKIE->assign($request->cookie);
         $_FILES->assign($request->files);
-
-        Session::gc();
-        Session::start($response);
-        $_SESSION->assign(Session::get());
+        $_SESSION->assign([]);
+        $GLOBALS[Http::$globalName]->assign(['swoole_http_response' => $response, 'header' => [], 'session_id' => '', 'session_started' => false]);
     }
 
     function cleanGlobalArray($id)
@@ -419,11 +431,12 @@ class Worker
         $_GET->remove();
         $_POST->remove();
         $_REQUEST->remove();
-        $_FILES->remove();
-
-        Session::set($_SESSION->get());
-        $_SESSION->remove();
         $_COOKIE->remove();
+        $_FILES->remove();
+        $GLOBALS[Http::$globalName]->remove();
+
+        Http::sessionWriteClose();
+        $_SESSION->remove();
 
         if ($this->coroutine) {
             unset($this->cidMapping[$id]);

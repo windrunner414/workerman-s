@@ -31,9 +31,9 @@ class TcpConnection extends ConnectionInterface
     public $type;
     public $closed = false;
     /**
-     * @var bool if not conn->end() on a request, will auto end
+     * @var bool if close on handshake, will be true
      */
-    public $ended = false;
+    public $webSocketClosed = false;
     /**
      * @var string http post raw data
      */
@@ -124,7 +124,7 @@ class TcpConnection extends ConnectionInterface
                 break;
 
             case self::TYPE_OTHER:
-                if ($this->protocol && !$raw) $send_buffer = ($this->protocol)::encode($send_buffer);
+                if ($this->protocol && !$raw) $send_buffer = ($this->protocol)::encode($send_buffer, $this);
                 if (!WorkerManager::getMainWorker()->send($this->fd, $send_buffer)) goto send_fail;
                 break;
 
@@ -213,7 +213,7 @@ class TcpConnection extends ConnectionInterface
         switch ($this->type) {
             case self::TYPE_HTTP:
                 $this->conn->end();
-                $this->ended = true;
+                $this->webSocketClosed = true; // if not websocket, will ignore this property
                 break;
 
             case self::TYPE_WEBSOCKET:
@@ -233,7 +233,7 @@ class TcpConnection extends ConnectionInterface
     function destroy()
     {
         WorkerManager::getMainWorker()->close($this->fd, true);
-        if ($this->type === self::TYPE_HTTP) $this->ended = true;
+        if ($this->type === self::TYPE_HTTP) $this->webSocketClosed = true;
     }
 
     function pauseRecv()
