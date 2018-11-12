@@ -17,6 +17,8 @@ class TcpConnection extends ConnectionInterface
     const TYPE_WEBSOCKET = 1;
     const TYPE_OTHER = 2;
 
+    const EVENTS = ['onMessage', 'onClose', 'onBufferFull', 'onBufferDrain', 'onError', 'onWebSocketConnect', 'onWebSocketClose'];
+
     private $destroyed = false;
     private $fd;
 
@@ -32,6 +34,10 @@ class TcpConnection extends ConnectionInterface
      * @var bool if not conn->end() on a request, will auto end
      */
     public $ended = false;
+    /**
+     * @var string http post raw data
+     */
+    public $rawPostData = '';
 
     public $protocol;
     public $worker;
@@ -44,6 +50,8 @@ class TcpConnection extends ConnectionInterface
     public $onBufferFull = null;
     public $onBufferDrain = null;
     public $onError = null;
+    public $onWebSocketConnect = null;
+    public $onWebSocketClose = null;
 
     function __construct($type, $fd, $protocol, $worker, $ready = true)
     {
@@ -58,12 +66,17 @@ class TcpConnection extends ConnectionInterface
         ++self::$statistics['connection_count'];
     }
 
+    function __destruct()
+    {
+        if (!$this->destroyed) $this->_destroy();
+    }
+
     function _destroy()
     {
         if ($this->destroyed) return;
         $this->destroyed = true;
 
-        if (!$this->closed) $this->close();
+        if (!$this->closed) try {$this->close();} catch (\Exception $e) {}
         unset(self::$connections[$this->fd]);
         --self::$statistics['connection_count'];
     }
@@ -215,12 +228,15 @@ class TcpConnection extends ConnectionInterface
             default:
                 throw new \Exception('Unknown connection type');
         }
+
+        $this->closed = true;
     }
 
     function destroy()
     {
         WorkerManager::getMainWorker()->close($this->fd, true);
         if ($this->type === self::TYPE_HTTP) $this->ended = true;
+        $this->closed = true;
     }
 
     function pauseRecv()

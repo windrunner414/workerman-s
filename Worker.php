@@ -204,6 +204,10 @@ class Worker
         else $type = TcpConnection::TYPE_OTHER;
 
         $connection = new TcpConnection($type, $fd, $this->protocolClass, $this, $type === TcpConnection::TYPE_OTHER);
+        foreach (TcpConnection::EVENTS as $event) {
+            $connection->$event = $this->$event;
+        }
+
         $this->connections[$fd] = $connection;
         Worker::trigger($this, 'onConnect', $connection);
     }
@@ -229,6 +233,7 @@ class Worker
 
         $connection = $this->connections[$request->fd];
         $connection->conn = $response;
+        $connection->rawPostData = $request->rawContent();
         $data = $request->getData();
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $data);
@@ -255,8 +260,10 @@ class Worker
 
         $connection = $this->connections[$request->fd];
         $connection->conn = $response;
+        $connection->rawPostData = $request->rawContent();
         Worker::trigger($this, 'onWebSocketConnect', $connection, $request->getData());
 
+        $connection->ended = false;
         if ($connection->closed) return false;
 
         $secWebSocketKey = $request->header['sec-websocket-key'];
