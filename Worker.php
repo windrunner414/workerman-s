@@ -218,7 +218,6 @@ class Worker
         $connection = $this->connections[$fd];
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $data);
-        Worker::trigger($this, 'onMessage', $connection, $data);
     }
 
     /**
@@ -237,7 +236,6 @@ class Worker
         $data = $request->getData();
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $data);
-        Worker::trigger($this, 'onMessage', $connection, $data);
 
         if (!$connection->ended) {
             $connection->close();
@@ -261,7 +259,7 @@ class Worker
         $connection = $this->connections[$request->fd];
         $connection->conn = $response;
         $connection->rawPostData = $request->rawContent();
-        Worker::trigger($this, 'onWebSocketConnect', $connection, $request->getData());
+        Worker::trigger($connection, 'onWebSocketConnect', $connection, $request->getData());
 
         $connection->ended = false;
         if ($connection->closed) return false;
@@ -325,14 +323,13 @@ class Worker
         $connection->type = TcpConnection::TYPE_WEBSOCKET;
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $frame->data);
-        Worker::trigger($this, 'onMessage', $connection, $frame->data);
     }
 
     function _onPacket($server, $data, $clientInfo)
     {
         //TODO: need unpack
         $connection = null;
-        Worker::trigger($this, 'onMessage', $connection, $data);
+        Worker::trigger($connection, 'onMessage', $connection, $data);
     }
 
     function _onClose($server, $fd, $reactorId)
@@ -340,10 +337,9 @@ class Worker
         $connection = $this->connections[$fd];
         $connection->closed = true;
         Worker::trigger($connection, 'onClose', $connection);
-        Worker::trigger($this, 'onClose', $connection);
 
         if ($this->type === 'websocket') {
-            Worker::trigger($this, 'onWebSocketClose', $connection);
+            Worker::trigger($connection, 'onWebSocketClose', $connection);
             $this->cleanGlobalArray($fd);
         }
 
@@ -355,14 +351,12 @@ class Worker
     {
         $connection = $this->connections[$fd];
         Worker::trigger($connection, 'onBufferFull', $connection);
-        Worker::trigger($this, 'onBufferFull', $connection);
     }
 
     function _onBufferEmpty($server, $fd)
     {
         $connection = $this->connections[$fd];
         Worker::trigger($connection, 'onBufferDrain', $connection);
-        Worker::trigger($this, 'onBufferDrain', $connection);
     }
 
     function setGlobalArrayId($id)

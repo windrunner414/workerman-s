@@ -139,8 +139,6 @@ class TcpConnection extends ConnectionInterface
         else $msg = 'send buffer full and drop package';
 
         Worker::trigger($this, 'onError', $this, WORKERMAN_SEND_FAIL, $msg);
-        Worker::trigger($this->worker, 'onError', $this, WORKERMAN_SEND_FAIL, $msg);
-
         return false;
     }
 
