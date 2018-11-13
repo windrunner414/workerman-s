@@ -9,7 +9,6 @@
 namespace Workerman;
 
 use Workerman\Connection\TcpConnection;
-use Workerman\Lib\Session;
 use Workerman\Protocols\Http;
 
 require_once __DIR__ . '/Lib/Constants.php';

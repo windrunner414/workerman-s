@@ -18,7 +18,9 @@ $worker->onWorkerStart = function ($worker) {
 };
 
 $worker->onMessage = function ($connection, $data) {
-    $connection->conn->end('hello world');
+    \Workerman\Protocols\Http::sessionStart();
+    $connection->conn->end($_SESSION . $_COOKIE);
+    $_SESSION['last_time'] = time();
 };
 
 Worker::runAll();
