@@ -86,6 +86,11 @@ class Http implements ProtocolInterface
         return true;
     }
 
+    static function getMimeTypesFile()
+    {
+        return __DIR__ . '/Http/mime.types';
+    }
+
     static function sessionCreateId()
     {
         return Session::createId();
