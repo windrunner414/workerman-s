@@ -433,10 +433,10 @@ class Worker
         $_REQUEST->remove();
         $_COOKIE->remove();
         $_FILES->remove();
-        $GLOBALS[Http::$globalName]->remove();
 
         Http::sessionWriteClose();
         $_SESSION->remove();
+        $GLOBALS[Http::$globalName]->remove();
 
         if ($this->coroutine) {
             unset($this->cidMapping[$id]);
