@@ -234,7 +234,7 @@ class Worker
         $connection = $this->connections[$request->fd];
         $connection->conn = $response;
         $connection->rawPostData = $request->rawContent();
-        $data = $request->getData();
+        $data = ['get' => $_GET, 'post' => $_POST, 'cookie' => $_COOKIE, 'server' => $_SERVER, 'files' => $_FILES];
         ++TcpConnection::$statistics['total_request'];
         Worker::trigger($connection, 'onMessage', $connection, $data);
         $connection->conn = null;
